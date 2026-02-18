@@ -350,15 +350,16 @@ const Reports = () => {
     setLoading(true);
     try {
       // 1️⃣ Fetch all students
-      const students = await adminAPI.getStudents();
+      const studentsData = await adminAPI.getStudents();
+      const students = Array.isArray(studentsData) ? studentsData : (studentsData?.data || []);
 
-      // 2️⃣ Filter students for selected subject
+      // 2️⃣ Filter students for selected subject (Trim & Case-Insensitive)
+      const selectedSub = String(subject).trim().toLowerCase();
       const subjectStudents = students.filter(student =>
-        (student.subjects || []).includes(subject)
+        (student.subjects || []).some(s => String(s).trim().toLowerCase() === selectedSub)
       );
 
-      // 3️⃣ Solve Timezone Issue: Fetch current and previous UTC day
-      // Malaysia (UTC+8) morning records (before 8 AM) are stored as "yesterday" in UTC.
+      // 3️⃣ Fetch records (Current and Previous UTC day)
       const prevDate = dayjs(date).subtract(1, 'day').format('YYYY-MM-DD');
       
       const [recordsToday, recordsPrev] = await Promise.all([
@@ -367,41 +368,48 @@ const Reports = () => {
       ]);
 
       const allRecords = [
-        ...(Array.isArray(recordsToday) ? recordsToday : []),
-        ...(Array.isArray(recordsPrev) ? recordsPrev : [])
+        ...(Array.isArray(recordsToday) ? recordsToday : (recordsToday?.data || [])),
+        ...(Array.isArray(recordsPrev) ? recordsPrev : (recordsPrev?.data || []))
       ];
 
-      // 4️⃣ Filter records that actually fall on the selected Malaysia local date
+      // 4️⃣ Filter records that fall on the selected Malaysia local date
+      const targetDateStr = String(date).trim();
       const presentRecords = allRecords.filter(record => {
-        if (!record.first_detected_at) return false;
-        // 🚀 FORCE MALAYSIA TIME (UTC+8): Predictable across all environments (Local & Vercel)
-        const localDate = dayjs.utc(record.first_detected_at).add(8, 'hour').format('YYYY-MM-DD');
-        return localDate === date;
+        const timestamp = record.first_detected_at || record.timestamp;
+        if (!timestamp) return false;
+        
+        const localDate = dayjs.utc(timestamp).add(8, 'hour').format('YYYY-MM-DD');
+        return localDate === targetDateStr;
       });
 
-      // 5️⃣ Create lookup map (using String-safe ID keys)
+      // 5️⃣ Create lookup map (Trim & String-safe)
       const presentMap = {};
       presentRecords.forEach(record => {
-        if (record.student_id) {
-          presentMap[String(record.student_id)] = record;
+        const id = record.student_id || record.id;
+        if (id) {
+          presentMap[String(id).trim()] = record;
         }
       });
 
       // 6️⃣ Merge → PRESENT / ABSENT
       const mergedReport = subjectStudents.map(student => {
-        const studentIdStr = String(student.student_id);
+        const studentIdStr = String(student.student_id).trim();
         const present = presentMap[studentIdStr];
 
         return {
           student_id: student.student_id,
           full_name: student.full_name,
           status: present ? 'PRESENT' : 'ABSENT',
-          first_detected_at: present?.first_detected_at || null,
+          first_detected_at: present?.first_detected_at || present?.timestamp || null,
         };
       });
 
       setData(mergedReport);
-      message.success(`Report generated for ${date}`);
+      if (mergedReport.length > 0) {
+        message.success(`Report generated for ${date}`);
+      } else {
+        message.info('No students found for this subject.');
+      }
     } catch (error) {
       console.error(error);
       message.error('Failed to generate attendance report');
