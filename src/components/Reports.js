@@ -374,20 +374,23 @@ const Reports = () => {
       // 4️⃣ Filter records that actually fall on the selected Malaysia local date
       const presentRecords = allRecords.filter(record => {
         if (!record.first_detected_at) return false;
-        // Convert the UTC timestamp from backend to Malaysia local date string
-        const localDate = dayjs.utc(record.first_detected_at).local().format('YYYY-MM-DD');
+        // 🚀 FORCE MALAYSIA TIME (UTC+8): Predictable across all environments (Local & Vercel)
+        const localDate = dayjs.utc(record.first_detected_at).add(8, 'hour').format('YYYY-MM-DD');
         return localDate === date;
       });
 
-      // 5️⃣ Create lookup map (using most recent detection if multiple exist)
+      // 5️⃣ Create lookup map (using String-safe ID keys)
       const presentMap = {};
       presentRecords.forEach(record => {
-        presentMap[record.student_id] = record;
+        if (record.student_id) {
+          presentMap[String(record.student_id)] = record;
+        }
       });
 
       // 6️⃣ Merge → PRESENT / ABSENT
       const mergedReport = subjectStudents.map(student => {
-        const present = presentMap[student.student_id];
+        const studentIdStr = String(student.student_id);
+        const present = presentMap[studentIdStr];
 
         return {
           student_id: student.student_id,
